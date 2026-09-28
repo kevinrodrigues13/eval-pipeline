@@ -74,22 +74,33 @@ including the unpadded baseline. Running the same 25 comparisons through it:
 (effect -11.8%), 0.0% of non-A baselines flipped to the padded side
 ```
 
-The padded-vs-baseline comparison here is no longer clean (padding still
-eats into the fixed length budget, displacing real content — see the
-caveats), but the number worth pausing on is the *first* one: baseline A's
-win rate dropped from **87.5% to 64.7%** — a 23-point swing — purely from
-equalizing response length at baseline, before padding enters the picture
-at all. `gpt-3.5-turbo`'s real responses in this sample appear to be
-genuinely longer than `vicuna-13b-v1.2`'s on average, and a meaningful
-share of its measured advantage may be verbosity, not quality.
+The number worth pausing on is the *first* one: baseline A's win rate
+dropped from **87.5% to 64.7%** — a 23-point swing — once the same
+length-truncation ran on the unpadded baseline too. "Equalizing length" is
+a generous description of what that truncation actually does: it caps raw
+character count at a word boundary, with no notion of what's padding versus
+real content, so on **16 of the 25 baseline comparisons (64%)** the longer
+response's own content — not synthetic padding, since there is none in the
+baseline case — got cut off, not just trimmed of excess. That's a more
+aggressive intervention than "length control" implies, and it means the
+23-point swing is evidence for a real, live sensitivity to how much of the
+longer response the judge gets to read — deliberately withholding content
+changed its preference — rather than a clean demonstration that verbosity
+*alone*, with substance held equal, drives the result. `gpt-3.5-turbo`'s
+real responses in this sample appear to be genuinely longer than
+`vicuna-13b-v1.2`'s on average, and a meaningful share of its measured
+advantage may be verbosity, not quality — this experiment shows the judge
+is sensitive to that length gap; it does not cleanly separate "verbosity"
+from "more real content" as the explanation.
 
 That is a live caveat on this project's own headline number
 (`gpt-3.5-turbo` preferred, 74.0% — README, computed with a different
 judge, GPT-4 recorded verdicts, on the full 146-item held-out set). This
 experiment does not re-measure that number and cannot correct it — it
-flags, with real evidence from a length-controlled re-judging of a
-25-item subsample, that length is a plausible confound worth checking
-directly before treating 74.0% as a pure quality signal.
+flags, with real evidence from re-judging a 25-item subsample with the
+longer response's content truncated down toward the shorter one's length,
+that length is a plausible confound worth checking directly before
+treating 74.0% as a pure quality signal.
 
 ## The mitigation
 
@@ -129,14 +140,25 @@ at `claude-haiku-4-5` instead of a fake.
   formatting, hedging density) than a generic paragraph wrap — this
   experiment tests the crude version and finds it doesn't work on Haiku;
   it says nothing about whether a more adaptive attack would.
-- **The mitigation's own padded-vs-baseline comparison is confounded.**
-  Once both sides are truncated to a shared length budget, padding a
-  response no longer purely inflates it — it also displaces real content
-  that would otherwise have fit. The -11.8% effect under mitigation is
-  therefore *not* a clean re-measurement of gameability; the number worth
-  trusting from that run is the baseline shift (87.5% → 64.7%), which
-  compares two *unpadded* conditions and isolates the length variable
-  cleanly.
+- **`LengthNormalizedJudge` truncates real content far more often than it
+  truncates padding — measured, not estimated.** `_truncate_to` caps raw
+  character count at a word boundary; it has no notion of what's synthetic
+  padding versus genuine answer. Run against the actual 25-item sample:
+  truncating the **padded** side cut into real content (not just the
+  padding) in **23 of 25 cases (92%)** — `pad_response`'s ~339 characters
+  of overhead only fits inside the tolerance budget for responses already
+  longer than ~2200 characters, and most of this dataset is shorter than
+  that. Truncating the plain **unpadded baseline** (no padding exists to
+  protect) cut real content in **16 of 25 cases (64%)**. So neither run
+  through the mitigation is a clean, content-preserving length-control:
+  both routinely remove genuine answer content, not excess verbosity. The
+  baseline shift (87.5% → 64.7%) is still real evidence the judge is
+  sensitive to how much of a response it gets to read — but "equalizing
+  length" overstates what the mechanism does; "withholding content down to
+  a length budget" is the accurate description. A mitigation that
+  preserves content and only removes verbosity would need to be
+  content-aware, which is a materially harder problem this module does not
+  attempt.
 
 ## Reproducing this
 
