@@ -1,0 +1,27 @@
+.venv/
+.claude/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+.DS_Store
+output/
+
+# Credentials. Never commit.
+.env
+.env.*
+!.env.example
+
+# Fetched datasets. Third-party data (CC-BY-4.0), ~24MB, and reproducible
+# with `python -m eval_pipeline.mtbench` — so the fetch command is the
+# artefact worth keeping, not the bytes.
+data/*.jsonl
+
+# The assessment prompt itself is the company's material — keep it out of a
+# repo that will be pushed publicly.
+*.pdf
+
+# Cached judge responses — real verdicts, but paid for locally.
+.judge_cache.jsonl
+.reward_hacking_cache.jsonl

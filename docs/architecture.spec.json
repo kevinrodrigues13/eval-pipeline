@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Evaluation & Judge Calibration Pipeline",
+    "output": "architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [1180, 600],
+    "views": [
+      { "id": "primary-path", "label": "Primary path", "focus": ["mtbench-dataset", "mtbench-adapter", "data-files", "ingestion", "validation", "judge", "calibration", "scoring", "report"], "note": "Ingestion → judging → scoring → report generation." },
+      { "id": "trust-gate", "label": "The trust gate", "focus": ["validation", "judge", "calibration", "stats"], "note": "Calibration measures the judge against humans the same way humans are measured against each other, then gates on a ratio to that ceiling." },
+      { "id": "external-deps", "label": "External dependencies", "focus": ["mtbench-dataset", "anthropic-api"], "note": "The only two things this pipeline talks to outside its own process." }
+    ]
+  },
+  "components": [
+    { "id": "mtbench-dataset", "type": "external", "label": "MT-Bench Judgments", "sublabel": "HuggingFace, CC-BY-4.0", "pos": [40, 140], "size": [150, 64] },
+    { "id": "mtbench-adapter", "type": "backend", "label": "mtbench.py", "sublabel": "dataset adapter", "pos": [230, 140], "size": [150, 64] },
+    { "id": "data-files", "type": "database", "label": "data/*.jsonl", "sublabel": "3 derived files", "pos": [420, 140], "size": [150, 64] },
+    { "id": "ingestion", "type": "backend", "label": "ingestion.py", "sublabel": "JSONL to Comparison", "pos": [610, 140], "size": [150, 64] },
+    { "id": "validation", "type": "backend", "label": "validation.py", "sublabel": "noise flags, ceiling", "pos": [800, 140], "size": [150, 64] },
+    { "id": "anthropic-api", "type": "external", "label": "Anthropic API", "sublabel": "claude-opus-5, live only", "pos": [800, 240], "size": [150, 64] },
+    { "id": "judge", "type": "backend", "label": "judge.py", "sublabel": "position-swap defense", "pos": [610, 380], "size": [150, 64] },
+    { "id": "calibration", "type": "backend", "label": "calibration.py", "sublabel": "agreement, kappa, gate", "pos": [420, 380], "size": [150, 64], "tag": "trust gate" },
+    { "id": "scoring", "type": "backend", "label": "scoring.py", "sublabel": "win rate + interval", "pos": [230, 380], "size": [150, 64] },
+    { "id": "report", "type": "backend", "label": "report.py", "sublabel": "markdown report", "pos": [40, 380], "size": [150, 64] },
+    { "id": "stats", "type": "backend", "label": "stats.py", "sublabel": "kappa, bootstrap, MDE", "pos": [290, 480], "size": [150, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Local process · eval_pipeline package (cli.py wires it all together)", "wraps": ["mtbench-adapter", "data-files", "ingestion", "validation", "judge", "calibration", "stats", "scoring", "report"] }
+  ],
+  "connections": [
+    { "id": "fetch", "from": "mtbench-dataset", "to": "mtbench-adapter", "label": "datasets-server API", "variant": "emphasis", "labelDy": 56 },
+    { "id": "write-data", "from": "mtbench-adapter", "to": "data-files", "label": "writes, once", "labelDy": 56 },
+    { "id": "read-data", "from": "data-files", "to": "ingestion", "label": "load_comparisons", "labelDy": 56 },
+    { "id": "ingest-to-validate", "from": "ingestion", "to": "validation", "label": "Comparison rows", "labelDy": 56 },
+    { "id": "validate-to-judge", "from": "validation", "to": "judge", "label": "sampled + flagged", "fromSide": "bottom", "toSide": "top" },
+    { "id": "judge-live", "from": "judge", "to": "anthropic-api", "label": "live judge calls", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "judge-to-calibration", "from": "judge", "to": "calibration", "label": "verdicts", "labelDy": -30 },
+    { "id": "gate", "from": "calibration", "to": "scoring", "label": "gate: share of human κ", "variant": "security", "labelDy": -30 },
+    { "id": "scoring-to-report", "from": "scoring", "to": "report", "label": "comparison + caveats", "labelDy": -30 },
+    { "id": "stats-to-calibration", "from": "stats", "to": "calibration", "label": "kappa + clustered CI", "fromSide": "top", "toSide": "bottom" },
+    { "id": "stats-to-scoring", "from": "stats", "to": "scoring", "label": "clustered CI + MDE", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Local pipeline", "items": ["One row per comparison, not per annotation", "PrecomputedJudge replays for free; LLMJudge calls out live", "cli.py wires every stage above into one command"] },
+    { "dot": "rose", "title": "The trust gate", "items": ["calibration.py measures the judge the same way the human ceiling is measured", "Gated below 50% of that ceiling's kappa — report still written either way"] },
+    { "dot": "amber", "title": "External dependencies", "items": ["MT-Bench (HuggingFace, CC-BY-4.0) — fetched once, cached to data/", "Anthropic API — live mode only, gated behind a cost estimate"] }
+  ]
+}
