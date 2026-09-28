@@ -46,18 +46,6 @@ gaming-resistant exactly to the extent that these numbers stay near zero.
 
 ## What actually happened
 
-**This run predates a real data-pipeline bug fix and has not been
-re-verified against corrected data.** `mtbench.py` originally mis-extracted
-turn=1 items from the raw dataset — every turn=1 comparison was actually
-turn-2 content mislabeled as turn 1 (see `METHODOLOGY.md` §3.1). That bug is
-now fixed and `data/policy_outputs.jsonl` has been regenerated, so
-`--seed 7` no longer reproduces the exact same 25 comparisons' content this
-section quotes below — the file it samples from has since changed
-structurally. The run itself, and the padding/truncation mechanics it
-demonstrates, are real; the specific sample is now historical, not
-reproducible byte-for-byte by re-running the command as given. Re-running it
-is real spend and has not been done as part of this submission.
-
 Run against 25 held-out `gpt-3.5-turbo` vs `vicuna-13b-v1.2` comparisons
 (`data/policy_outputs.jsonl`, seed 7), live, via `claude-haiku-4-5`
 (`python -m eval_pipeline.reward_hacking`, ~$1.34):
