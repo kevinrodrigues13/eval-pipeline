@@ -41,7 +41,7 @@ python -m eval_pipeline.cli \
   --judge-name     "GPT-4 (MT-Bench recorded verdicts)" \
   --calibration-items 300
 
-pytest   # 178 tests
+pytest   # 188 tests
 ```
 
 The report lands in `output/evaluation_report.md`, checked into this repo so
@@ -191,14 +191,14 @@ independent.
 | `report.py` | Renders the markdown report |
 | `cli.py` | Wires all of the above into one runnable command |
 | `reward_hacking.py` | Tests whether the judge can be gamed by content-free padding; a length-normalization mitigation. See [`REWARD_HACKING.md`](REWARD_HACKING.md) |
-| `service.py` | The pipeline as a recorded-judge-only HTTP service. See [`DEPLOYMENT.md`](DEPLOYMENT.md) |
+| `service.py` | The pipeline as an HTTP service — recorded-judge by default, live-judge behind an operator key and a two-step cost-confirmation flow. See [`DEPLOYMENT.md`](DEPLOYMENT.md) |
 
 ---
 
 ## Testing
 
 ```bash
-pytest              # everything, 178 tests
+pytest              # everything, 188 tests
 pytest tests/test_calibration.py -q   # one module
 ```
 
@@ -222,11 +222,12 @@ than as part of the suite — see [`REWARD_HACKING.md`](REWARD_HACKING.md).
 
 ## Deployment
 
-The pipeline is also callable as a recorded-judge-only HTTP service —
+The pipeline is also callable as an HTTP service — recorded-judge mode by
+default, live-judge mode gated behind an operator-set key — via
 `uvicorn eval_pipeline.service:app` or `docker build . && docker run
 -p 8080:8080 ...`, deployable on DigitalOcean App Platform via
-`.do/app.yaml`. See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the API, why live
-judging is deliberately not reachable over HTTP, and exactly what was and
+`.do/app.yaml`. See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the API, how live
+mode stays safe on a publicly reachable endpoint, and exactly what was and
 wasn't verified locally (not actually deployed as part of this submission).
 
 ---

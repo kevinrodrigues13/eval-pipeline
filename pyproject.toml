@@ -7,7 +7,7 @@ dependencies = ["requests"]
 
 [project.optional-dependencies]
 live = ["anthropic"]
-service = ["fastapi", "uvicorn[standard]"]
+service = ["fastapi", "uvicorn[standard]", "anthropic"]
 dev = ["pytest", "fastapi", "uvicorn[standard]", "httpx"]
 
 [build-system]

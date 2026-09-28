@@ -1,4 +1,6 @@
-# DigitalOcean App Platform spec for the recorded-judge evaluation service.
+# DigitalOcean App Platform spec for the evaluation service. Recorded-judge
+# mode needs no secrets; live mode needs ANTHROPIC_API_KEY and
+# LIVE_JUDGE_API_KEY set as App Platform secrets (not committed here).
 # Deploy with: doctl apps create --spec .do/app.yaml
 # (Not deployed as part of this submission — see DEPLOYMENT.md.)
 name: eval-pipeline-service
