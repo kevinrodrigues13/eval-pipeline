@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from .prompts import SYSTEM_PROMPT, render_prompt
+from .prompts import render_prompt, render_system_prompt
 from .schema import Comparison
 
 _VERDICT_PATTERN = re.compile(r"\[\[\s*([ABC])\s*\]\]")
@@ -222,7 +222,7 @@ class LLMJudge(Judge):
         self._backend = backend
 
     def verdict(self, comparison: Comparison) -> Verdict:
-        raw = self._backend(SYSTEM_PROMPT, render_prompt(comparison))
+        raw = self._backend(render_system_prompt(comparison), render_prompt(comparison))
         return Verdict(winner=parse_verdict(raw), raw=raw)
 
 

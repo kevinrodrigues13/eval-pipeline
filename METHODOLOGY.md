@@ -101,6 +101,54 @@ prompt is what makes the judge's own kappa comparable to MT-Bench's
 recorded GPT-4 kappa on the same items — a different prompt would mean
 measuring a different judge, not judging this one.
 
+**Two bugs found here, both against that same standard, one much larger
+than the other.** First: MT-Bench's own multi-turn judge prompt
+(`pair-v2-multi-turn`) is not only a different user-turn template — it is a
+different *system* prompt, adding one sentence `SYSTEM_PROMPT` does not
+have: *"You should focus on who provides a better answer to the second user
+question."* `judge.py` originally sent every comparison through the same
+`SYSTEM_PROMPT` regardless of turn, so a multi-turn item never got the
+instruction to isolate turn-2 quality from turn-1 quality — verified against
+FastChat's published `judge_prompts.jsonl` directly, not assumed. Fixed
+with `prompts.render_system_prompt`, which selects the multi-turn system
+prompt whenever `context_a`/`context_b` is non-empty.
+
+Checking that surfaced the second, more serious bug: `mtbench.py`'s
+`_prompt_and_context` unconditionally read the *last* two messages of
+`conversation_a`/`conversation_b` as "the item being judged" and everything
+before as context — correct for a turn-2 row, but `conversation_a`/`_b`, as
+published, carries the *full* transcript (both turns) regardless of which
+turn a given row is a judgment of; verified directly against the raw
+dataset, not assumed, across every row of a 100-row sample. For a turn=1
+row, `conversation[-2:]` silently returned turn 2's question and answer
+instead of turn 1's. **Every turn=1 comparison in this project's entire
+dataset — calibration, GPT-4 verdicts, and the held-out policy
+comparisons, since all three derived files share `_comparison_record` — was
+turn-2 content mislabeled as turn 1.** There was no genuine single-turn
+data anywhere in this pipeline before this fix; roughly half the dataset
+was a duplicate of the other half under a different id. It went uncaught by
+`tests/test_mtbench.py` because the test fixtures modeled an idealized
+shape of the raw data (a turn=1 row with a 2-message `conversation_a`) that
+does not match the real dataset — the tests passed, for the wrong reason,
+against fixtures that had already assumed the bug's fix. Fixed by threading
+`row["turn"]` through `_prompt_and_context`, which now slices the
+`(2*(turn-1), 2*(turn-1)+1)` message pair instead of always the last two;
+the corrected fixtures reproduce the real shape (`conversation_a` always
+carries both turns) and assert turn 1 and turn 2 extract different content
+from the same underlying conversation.
+
+**What this does and doesn't invalidate.** The free/recorded path
+(`--judge recorded`, `PrecomputedJudge`) turned out to be unaffected in
+substance: it replays GPT-4's own stored verdict for each item, matched by
+id, and never reads `prompt`/`context` at all — regenerating
+`output/evaluation_report.md` against the corrected data reproduced the
+exact same numbers (74.0% win rate, 98.3% share of human kappa), confirming
+this by observation rather than argument. What *was* affected is any run
+that actually sent rendered prompt content to a live model — which
+`output/evaluation_report_live.md` and §5.5's `claude-haiku-4-5` comparison
+did, before this fix existed. That run is not corrected retroactively; §5.5
+now says so explicitly.
+
 ### 3.2 Decision: position bias is defended twice, independently
 
 The system prompt instructs the judge to ignore response order. That is an
@@ -304,6 +352,18 @@ work: not anymore. `claude-opus-5` (this project's default) has run via
 this document; `claude-haiku-4-5` has since been run **live**, for real,
 against the same held-out pair (`--calibration-items 250 --concurrency 10
 --skip-parse-errors`, README).
+
+**This run predates the turn-extraction fix in §3.1 and has not been
+re-verified against corrected data.** At the time this table's live run
+happened, roughly half of every sample it drew from — every turn=1 item —
+actually showed `claude-haiku-4-5` turn-2 content mislabeled as turn 1
+(§3.1). The free/recorded row is unaffected (it replays stored verdicts,
+never rendered prompt content — confirmed by regenerating it against the
+corrected data and getting identical numbers), so the comparison below is
+between a row that's still accurate and a row that is not, left in place
+rather than deleted, quietly redone, or silently presented as current. A
+corrected live re-run is real spend (`python -m eval_pipeline.cli` against
+`claude-haiku-4-5`) and has not been executed as part of this submission.
 
 Both clear the trust gate comfortably, but not by the same margin, and they
 do not agree on the magnitude of the headline finding:

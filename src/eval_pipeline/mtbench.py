@@ -90,18 +90,30 @@ def _fetch_split(split: str) -> List[dict]:
         time.sleep(1.0)
 
 
-def _prompt_and_context(conversation: List[Turn]) -> Tuple[str, str, Tuple[Tuple[str, str], ...]]:
+def _prompt_and_context(
+    conversation: List[Turn], turn: int
+) -> Tuple[str, str, Tuple[Tuple[str, str], ...]]:
     """
-    Split a rendered conversation into (prompt, response, prior context).
+    Split a rendered conversation into (prompt, response, prior context) for
+    the specific turn this row is a judgment of.
 
-    The last two turns are this comparison's user question and assistant
-    answer; everything before that is prior-turn context, carried as
-    (role, content) pairs so a judge sees the same history a human annotator
-    did on a multi-turn item.
+    `conversation_a`/`conversation_b`, as published, always carry the FULL
+    transcript (every turn, not just the one being judged) regardless of
+    `turn` — verified directly against the raw dataset: a turn=1 row for a
+    2-turn item has a 4-message `conversation_a`, identical to its turn=2
+    counterpart, not the 2-message single-exchange one might expect. Slicing
+    with a fixed `conversation[-2:]` is only correct for the *last* turn;
+    for turn 1 of a multi-turn item it would silently return turn 2's
+    question and answer instead. The 1-indexed `turn` says which (question,
+    answer) pair — at zero-indexed messages `2*(turn-1)` and `2*(turn-1)+1`
+    — is the one this row actually judges; everything strictly before it is
+    prior-turn context, carried as (role, content) pairs so a judge sees the
+    same history a human annotator did.
     """
-    prompt = conversation[-2]["content"]
-    response = conversation[-1]["content"]
-    context = tuple((turn["role"], turn["content"]) for turn in conversation[:-2])
+    start = 2 * (turn - 1)
+    prompt = conversation[start]["content"]
+    response = conversation[start + 1]["content"]
+    context = tuple((t["role"], t["content"]) for t in conversation[:start])
     return prompt, response, context
 
 
@@ -142,8 +154,8 @@ def _canonical_row(row: dict) -> dict:
 
 def _comparison_record(row: dict) -> dict:
     row = _canonical_row(row)
-    prompt, response_a, context_a = _prompt_and_context(row["conversation_a"])
-    _, response_b, context_b = _prompt_and_context(row["conversation_b"])
+    prompt, response_a, context_a = _prompt_and_context(row["conversation_a"], row["turn"])
+    _, response_b, context_b = _prompt_and_context(row["conversation_b"], row["turn"])
     return {
         "id": _item_id(row),
         "cluster_id": f"q{row['question_id']}",

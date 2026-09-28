@@ -41,7 +41,7 @@ python -m eval_pipeline.cli \
   --judge-name     "GPT-4 (MT-Bench recorded verdicts)" \
   --calibration-items 300
 
-pytest   # 175 tests
+pytest   # 178 tests
 ```
 
 The report lands in `output/evaluation_report.md`, checked into this repo so
@@ -198,7 +198,7 @@ independent.
 ## Testing
 
 ```bash
-pytest              # everything, 175 tests
+pytest              # everything, 178 tests
 pytest tests/test_calibration.py -q   # one module
 ```
 

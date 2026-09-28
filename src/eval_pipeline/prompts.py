@@ -26,6 +26,41 @@ SYSTEM_PROMPT = (
     "\"[[B]]\" if assistant B is better, and \"[[C]]\" for a tie."
 )
 
+# MT-Bench's own multi-turn judge prompt (FastChat's "pair-v2-multi-turn",
+# judge_prompts.jsonl) is not just a different template — it is a different
+# system prompt, differing from SYSTEM_PROMPT by exactly one inserted
+# sentence: "You should focus on who provides a better answer to the second
+# user question." Without it, a judge shown a multi-turn item has no
+# instruction to isolate turn-2 quality from turn-1 quality, and may score
+# the conversation holistically instead — a different criterion than what
+# MT-Bench's own recorded human/GPT-4 labels for that item represent.
+MULTI_TURN_SYSTEM_PROMPT = (
+    "Please act as an impartial judge and evaluate the quality of the "
+    "responses provided by two AI assistants to the user questions. You "
+    "should choose the assistant that follows the user's instructions and "
+    "answers the user's questions better. Your evaluation should consider "
+    "factors such as the helpfulness, relevance, accuracy, depth, "
+    "creativity, and level of detail of their responses. You should focus "
+    "on who provides a better answer to the second user question. Begin "
+    "your evaluation by comparing the responses of the two assistants and "
+    "provide a short explanation. Avoid any position biases and ensure "
+    "that the order in which the responses were presented does not "
+    "influence your decision. Do not allow the length of the responses to "
+    "influence your evaluation. Do not favor certain names of the "
+    "assistants. Be as objective as possible. After providing your "
+    "explanation, output your final verdict by strictly following this "
+    "format: \"[[A]]\" if assistant A is better, \"[[B]]\" if assistant B "
+    "is better, and \"[[C]]\" for a tie."
+)
+
+
+def render_system_prompt(comparison: Comparison) -> str:
+    """MT-Bench uses a different system prompt for multi-turn items, not
+    just a different user-turn template — see MULTI_TURN_SYSTEM_PROMPT."""
+    if comparison.context_a or comparison.context_b:
+        return MULTI_TURN_SYSTEM_PROMPT
+    return SYSTEM_PROMPT
+
 
 def _render_side(label: str, prior_turns, prompt: str, response: str) -> str:
     lines = [f"<|The Start of Assistant {label}'s Conversation with User|>", ""]

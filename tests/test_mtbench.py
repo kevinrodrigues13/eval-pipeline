@@ -21,6 +21,21 @@ from eval_pipeline.mtbench import (
 )
 
 
+def _full_conversation(model: str) -> list:
+    # Shaped like the real dataset: conversation_a/b always carry BOTH turns
+    # in full, regardless of which turn this particular row judges — a
+    # turn=1 row's conversation is not truncated to just the first exchange.
+    # Verified directly against lmsys/mt_bench_human_judgments: a turn=1 row
+    # for a 2-turn item has a 4-message conversation_a, identical in length
+    # (and, for a given question/judge, in content) to its turn=2 sibling.
+    return [
+        {"role": "user", "content": "write a haiku"},
+        {"role": "assistant", "content": f"{model}'s haiku"},
+        {"role": "user", "content": "now about autumn"},
+        {"role": "assistant", "content": f"{model}'s autumn haiku"},
+    ]
+
+
 def turn1_row(model_a="alpaca-13b", model_b="gpt-3.5-turbo", winner="model_b", judge="author_2"):
     return {
         "question_id": 81,
@@ -29,14 +44,8 @@ def turn1_row(model_a="alpaca-13b", model_b="gpt-3.5-turbo", winner="model_b", j
         "winner": winner,
         "judge": judge,
         "turn": 1,
-        "conversation_a": [
-            {"role": "user", "content": "write a haiku"},
-            {"role": "assistant", "content": f"{model_a}'s haiku"},
-        ],
-        "conversation_b": [
-            {"role": "user", "content": "write a haiku"},
-            {"role": "assistant", "content": f"{model_b}'s haiku"},
-        ],
+        "conversation_a": _full_conversation(model_a),
+        "conversation_b": _full_conversation(model_b),
     }
 
 
@@ -48,33 +57,38 @@ def turn2_row(model_a="alpaca-13b", model_b="gpt-3.5-turbo", winner="model_a", j
         "winner": winner,
         "judge": judge,
         "turn": 2,
-        "conversation_a": [
-            {"role": "user", "content": "write a haiku"},
-            {"role": "assistant", "content": f"{model_a}'s haiku"},
-            {"role": "user", "content": "now about autumn"},
-            {"role": "assistant", "content": f"{model_a}'s autumn haiku"},
-        ],
-        "conversation_b": [
-            {"role": "user", "content": "write a haiku"},
-            {"role": "assistant", "content": f"{model_b}'s haiku"},
-            {"role": "user", "content": "now about autumn"},
-            {"role": "assistant", "content": f"{model_b}'s autumn haiku"},
-        ],
+        "conversation_a": _full_conversation(model_a),
+        "conversation_b": _full_conversation(model_b),
     }
 
 
 def test_prompt_and_context_splits_the_current_turn_from_history():
-    prompt, response, context = _prompt_and_context(turn2_row()["conversation_a"])
+    prompt, response, context = _prompt_and_context(turn2_row()["conversation_a"], turn=2)
     assert prompt == "now about autumn"
     assert response == "alpaca-13b's autumn haiku"
     assert context == (("user", "write a haiku"), ("assistant", "alpaca-13b's haiku"))
 
 
 def test_prompt_and_context_on_turn_one_has_no_prior_context():
-    prompt, response, context = _prompt_and_context(turn1_row()["conversation_a"])
+    # Regression test for a real bug: conversation_a is the FULL transcript
+    # even for a turn=1 row (see _full_conversation above), so a naive
+    # `conversation[-2:]` slice — correct only for the last turn — would
+    # silently return turn 2's question and answer here instead of turn 1's.
+    prompt, response, context = _prompt_and_context(turn1_row()["conversation_a"], turn=1)
     assert prompt == "write a haiku"
     assert response == "alpaca-13b's haiku"
     assert context == ()
+
+
+def test_prompt_and_context_turn_one_and_turn_two_extract_different_content():
+    # The same underlying (question, pair) full conversation, judged for two
+    # different turns, must not collapse to identical prompt/context — that
+    # collapse is exactly the bug this module now guards against.
+    conversation = turn2_row()["conversation_a"]
+    t1 = _prompt_and_context(conversation, turn=1)
+    t2 = _prompt_and_context(conversation, turn=2)
+    assert t1 != t2
+    assert t1 == ("write a haiku", "alpaca-13b's haiku", ())
 
 
 def test_item_id_format():
