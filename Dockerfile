@@ -5,10 +5,8 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src/ ./src/
 
-# service.py can run either judge mode; the anthropic SDK is part of the
-# [service] extra so a live-mode request works out of the box. Live mode
-# itself stays off unless the operator sets LIVE_JUDGE_API_KEY and
-# ANTHROPIC_API_KEY at deploy time — see DEPLOYMENT.md.
+# Recorded-judge only over HTTP (service.py) — no anthropic/litellm needed
+# in this image at all, since no live model call is reachable from it.
 RUN pip install --no-cache-dir ".[service]"
 
 EXPOSE 8080
