@@ -24,3 +24,7 @@ data/*.jsonl
 # Cached judge responses — real verdicts, but paid for locally.
 .judge_cache.jsonl
 .reward_hacking_cache.jsonl
+
+# service.py's job results store — real report content, local to a
+# deployment, not something to check in.
+.service_jobs.jsonl
