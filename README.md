@@ -41,7 +41,7 @@ python -m eval_pipeline.cli \
   --judge-name     "GPT-4 (MT-Bench recorded verdicts)" \
   --calibration-items 300
 
-pytest   # 188 tests
+pytest   # 196 tests
 ```
 
 The report lands in `output/evaluation_report.md`, checked into this repo so
@@ -191,14 +191,14 @@ independent.
 | `report.py` | Renders the markdown report |
 | `cli.py` | Wires all of the above into one runnable command |
 | `reward_hacking.py` | Tests whether the judge can be gamed by content-free padding; a length-normalization mitigation. See [`REWARD_HACKING.md`](REWARD_HACKING.md) |
-| `service.py` | The pipeline as an HTTP service — recorded-judge by default, live-judge behind an operator key and a two-step cost-confirmation flow. See [`DEPLOYMENT.md`](DEPLOYMENT.md) |
+| `service.py` | The pipeline as an HTTP service — recorded-judge runs synchronously by default; a live-judge batch is an operator-gated async job (submit, poll) rather than a blocking request. See [`DEPLOYMENT.md`](DEPLOYMENT.md) |
 
 ---
 
 ## Testing
 
 ```bash
-pytest              # everything, 188 tests
+pytest              # everything, 196 tests
 pytest tests/test_calibration.py -q   # one module
 ```
 
