@@ -6,7 +6,9 @@ from eval_pipeline.judge import LLMJudge, PrecomputedJudge
 from eval_pipeline.reward_hacking import (
     GamingExperiment,
     GamingResult,
+    LengthDisclosedJudge,
     LengthNormalizedJudge,
+    _length_disclosure_note,
     _truncate_to,
     pad_response,
     run_gaming_experiment,
@@ -176,6 +178,105 @@ def test_length_normalized_judge_preserves_order_invariance_from_inner():
     assert LengthNormalizedJudge(not_invariant).is_order_invariant is False
 
 
+# --- _length_disclosure_note ------------------------------------------------
+
+def test_no_note_when_lengths_are_within_threshold():
+    assert _length_disclosure_note(100, 110, threshold=1.15) == ""
+
+
+def test_note_fires_and_states_exact_lengths_past_the_threshold():
+    note = _length_disclosure_note(100, 200, threshold=1.15)
+    assert "100 characters" in note
+    assert "200 characters" in note
+    assert "not better for being longer" in note
+
+
+def test_note_threshold_is_a_strict_boundary():
+    # Exactly at the threshold: no note. Just past it: a note.
+    assert _length_disclosure_note(100, 115, threshold=1.15) == ""
+    assert _length_disclosure_note(100, 116, threshold=1.15) != ""
+
+
+def test_note_handles_a_zero_length_response_without_crashing():
+    assert _length_disclosure_note(0, 50, threshold=1.15) == ""
+
+
+# --- LengthDisclosedJudge: content is never touched, only the prompt ------
+
+def test_length_disclosed_judge_never_modifies_either_response():
+    captured = {}
+
+    def capturing_backend(system_prompt, user_prompt):
+        captured["user_prompt"] = user_prompt
+        return "[[A]]"
+
+    original = Comparison(row_id="c0", prompt="q", response_a="short", response_b="a real answer " * 50)
+    inner = LLMJudge(capturing_backend)
+    LengthDisclosedJudge(inner, threshold=1.15).verdict(original)
+
+    # The full, untruncated text of both responses must appear verbatim in
+    # what the judge actually saw — this is the core guarantee that
+    # distinguishes this mitigation from LengthNormalizedJudge.
+    assert original.response_a in captured["user_prompt"]
+    assert original.response_b in captured["user_prompt"]
+
+
+def test_length_disclosed_judge_prepends_the_note_to_the_prompt_when_it_fires():
+    captured = {}
+
+    def capturing_backend(system_prompt, user_prompt):
+        captured["user_prompt"] = user_prompt
+        return "[[A]]"
+
+    comparison = Comparison(row_id="c0", prompt="the actual question", response_a="x", response_b="y" * 100)
+    LengthDisclosedJudge(LLMJudge(capturing_backend), threshold=1.15).verdict(comparison)
+
+    assert "substantial length difference" in captured["user_prompt"]
+    assert "the actual question" in captured["user_prompt"]
+    # The note comes before the question in the rendered prompt.
+    assert captured["user_prompt"].index("substantial length") < captured["user_prompt"].index("the actual question")
+
+
+def test_length_disclosed_judge_adds_nothing_when_lengths_are_similar():
+    captured = {}
+
+    def capturing_backend(system_prompt, user_prompt):
+        captured["user_prompt"] = user_prompt
+        return "[[A]]"
+
+    comparison = Comparison(row_id="c0", prompt="q", response_a="answer one", response_b="answer two")
+    LengthDisclosedJudge(LLMJudge(capturing_backend), threshold=1.15).verdict(comparison)
+    assert "substantial length difference" not in captured["user_prompt"]
+
+
+def test_length_disclosed_judge_preserves_order_invariance_from_inner():
+    order_invariant = PrecomputedJudge.from_records([{"id": "c0", "winner": "A"}])
+    assert LengthDisclosedJudge(order_invariant).is_order_invariant is True
+
+    not_invariant = LLMJudge(length_sensitive_backend)
+    assert LengthDisclosedJudge(not_invariant).is_order_invariant is False
+
+
+def test_length_disclosed_judge_a_fake_that_reads_the_note_can_neutralise_the_padding_effect():
+    # Proves the wiring end-to-end: a judge that actually respects the
+    # disclosed lengths (unlike length_sensitive_backend, which never reads
+    # instructions) is no longer fooled by padding once wrapped. Whether a
+    # *real* model reads the note is a separate, unverified question this
+    # fake cannot answer — see REWARD_HACKING.md.
+    def instruction_following_backend(system_prompt, user_prompt):
+        if "substantial length difference" in user_prompt:
+            return "[[C]]"  # declines to pick a side once warned of a length gap
+        return "[[A]]" if len(user_prompt) > 0 else "[[B]]"  # otherwise arbitrary but stable
+
+    inner = LLMJudge(instruction_following_backend)
+    rows = [row(f"c{i}") for i in range(6)]
+    disclosed = LengthDisclosedJudge(inner, threshold=1.15)
+    experiment = run_gaming_experiment(disclosed, rows)
+    # Padding inflates response_a well past the threshold, so the note fires
+    # on every padded call and the fake backend ties rather than rewarding it.
+    assert experiment.padded_a_rate == pytest.approx(0.0)
+
+
 # --- main() entrypoint: refusal path only, never a real spend -------------
 
 def test_main_refuses_a_run_it_cannot_confirm(monkeypatch, tmp_path):
@@ -193,14 +294,15 @@ def test_main_refuses_a_run_it_cannot_confirm(monkeypatch, tmp_path):
 
 def test_main_prints_the_true_call_count_it_actually_makes(monkeypatch, tmp_path, capsys):
     # Regression test for a real bug found via code review: the printed
-    # cost estimate said `len(sample) * 4` calls, but main() runs
-    # run_gaming_experiment against TWO judges (naive, then
-    # length-normalized), each judging every comparison twice (baseline,
-    # padded) with 2 backend calls each (position swap) — the true count is
-    # `* 8`, not `* 4`. This asserts the printed number always matches the
-    # real number of backend calls made, so that class of bug can't recur
-    # silently in the one place in this codebase whose job is showing a
-    # user a cost before spending their money.
+    # cost estimate said `len(sample) * 4` calls, undercounting because it
+    # didn't account for every judge condition main() actually runs. main()
+    # now runs run_gaming_experiment against THREE judges (naive,
+    # length-normalized, length-disclosed), each judging every comparison
+    # twice (baseline, padded) with 2 backend calls each (position swap) —
+    # the true count is `* 12`. This asserts the printed number always
+    # matches the real number of backend calls made, so that class of bug
+    # can't recur silently in the one place in this codebase whose job is
+    # showing a user a cost before spending their money.
     from eval_pipeline import providers, reward_hacking
 
     call_count = {"n": 0}
@@ -229,4 +331,4 @@ def test_main_prints_the_true_call_count_it_actually_makes(monkeypatch, tmp_path
     printed = capsys.readouterr().out
     printed_n_calls = int(printed.split(" calls,")[0].split(", ")[-1])
     assert printed_n_calls == call_count["n"]  # the estimate must match reality
-    assert call_count["n"] == n * 8  # the actual, ground-truth call count
+    assert call_count["n"] == n * 12  # the actual, ground-truth call count

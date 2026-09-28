@@ -120,6 +120,68 @@ wrapped, **0%** (truncated to near-equal length, it falls back to its own
 tie-break). The real-model run above is the same code path, just pointed
 at `claude-haiku-4-5` instead of a fake.
 
+## A second mitigation: disclose the length instead of cutting it
+
+`LengthNormalizedJudge` guarantees the length signal is gone by construction,
+at the cost — measured above, not theoretical — of cutting real answer
+content in the large majority of cases it touches. The natural alternative
+is a mitigation that never touches either response's content at all:
+
+```python
+class LengthDisclosedJudge(Judge):
+    """Prepends an explicit length-disclosure note to the prompt instead of
+    truncating either response."""
+```
+
+`LengthDisclosedJudge` wraps another judge and, only when the two responses'
+lengths differ by more than `threshold` (default 1.15x, same knob as
+`LengthNormalizedJudge`'s `tolerance`), prepends a note stating both exact
+character counts and instructing the judge to ignore the gap — everything
+else about the prompt, and every character of `response_a`/`response_b`, is
+untouched. `verdict()` never calls `replace()` on either response field, only
+on `prompt`; `tests/test_reward_hacking.py` asserts this directly (the full,
+untruncated text of both responses is present verbatim in what the backend
+receives, for both the padded and unpadded case).
+
+This is the exact inverse tradeoff from `LengthNormalizedJudge`:
+
+| | `LengthNormalizedJudge` (truncate) | `LengthDisclosedJudge` (disclose) |
+|---|---|---|
+| Removes the length signal | Guaranteed, by construction | Only if the judge follows the note |
+| Preserves response content | Not guaranteed — measured 64–92% content loss above | Guaranteed, by construction |
+
+Neither dominates the other; each guarantees the property the other cannot.
+Whether disclosure actually changes the judge's behavior — as opposed to
+`prompts.SYSTEM_PROMPT`'s existing unconditional "ignore length" instruction,
+which this module's own naive-judge result above shows the judge already
+mostly follows even without a note — is an empirical question, not something
+the mechanism can answer by construction. That is what running it live
+against the same sample answers.
+
+### Status: implemented and unit-tested, not yet run live
+
+`main()` (below) is wired to run this as a third condition alongside naive
+and length-normalized, against the same 25-comparison sample, so reproducing
+it is one command away. That live run has not been executed as part of this
+submission — a 200-sample run against the full 146-item held-out set was
+started and deliberately stopped mid-run rather than let it spend against a
+sample size larger than what the rest of this document's numbers are based
+on, so the two would not be directly comparable. What's verified instead is
+the mechanism itself: `tests/test_reward_hacking.py` proves, against a
+backend that actually reads the disclosure note, that content-preserving
+disclosure can neutralise the same padding effect `LengthNormalizedJudge` is
+proven to neutralise (`test_length_disclosed_judge_a_fake_that_reads_the_note_can_neutralise_the_padding_effect`)
+— and, separately, that the note never alters either response's content
+(`test_length_disclosed_judge_never_modifies_either_response`), the property
+`LengthNormalizedJudge` cannot offer. What those tests cannot answer, because
+no fake backend can, is the actual empirical question stated above: does
+`claude-haiku-4-5` really follow the disclosure note. That requires the live
+run this document does not yet include.
+
+```bash
+python -m eval_pipeline.reward_hacking   # naive + both mitigations, one run
+```
+
 ## What this does and doesn't prove
 
 - **n = 16–17 usable comparisons**, one run, one seed, one held-out system
@@ -159,13 +221,21 @@ at `claude-haiku-4-5` instead of a fake.
   preserves content and only removes verbosity would need to be
   content-aware, which is a materially harder problem this module does not
   attempt.
+- **`LengthDisclosedJudge` is unverified against a live model.** It is
+  implemented, and its content-preservation guarantee is proven by test
+  (§ above), but whether `claude-haiku-4-5` actually follows the disclosed
+  length note — as opposed to ignoring it the way an instruction in a prompt
+  is not guaranteed to be followed, the same caveat this whole document opens
+  with — has not been measured live. Treat it as a candidate mitigation with
+  a proven mechanism and an open empirical question, not as a validated
+  replacement for `LengthNormalizedJudge`.
 
 ## Reproducing this
 
 ```bash
 pip install -e ".[live]"
 export ANTHROPIC_API_KEY=sk-...
-python -m eval_pipeline.reward_hacking          # ~$1.34 on claude-haiku-4-5
+python -m eval_pipeline.reward_hacking          # naive + both mitigations, ~$2 on claude-haiku-4-5, n=25
 python -m eval_pipeline.reward_hacking --n 50   # larger sample, roughly 2x the cost
 ```
 

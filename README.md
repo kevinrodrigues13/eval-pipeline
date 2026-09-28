@@ -41,7 +41,7 @@ python -m eval_pipeline.cli \
   --judge-name     "GPT-4 (MT-Bench recorded verdicts)" \
   --calibration-items 300
 
-pytest   # 166 tests
+pytest   # 175 tests
 ```
 
 The report lands in `output/evaluation_report.md`. That run takes a few
@@ -192,7 +192,7 @@ independent.
 ## Testing
 
 ```bash
-pytest              # everything, 166 tests
+pytest              # everything, 175 tests
 pytest tests/test_calibration.py -q   # one module
 ```
 

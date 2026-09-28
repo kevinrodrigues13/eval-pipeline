@@ -177,6 +177,55 @@ class LengthNormalizedJudge(Judge):
         return self.inner.verdict(normalized)
 
 
+def _length_disclosure_note(len_a: int, len_b: int, threshold: float) -> str:
+    shorter = min(len_a, len_b)
+    if shorter == 0 or max(len_a, len_b) / shorter <= threshold:
+        return ""
+    return (
+        f"Note: Assistant A's answer is {len_a} characters and Assistant "
+        f"B's answer is {len_b} characters — a substantial length "
+        "difference. Judge strictly on substance; a longer answer that says "
+        "the same thing is not better for being longer.\n\n"
+    )
+
+
+class LengthDisclosedJudge(Judge):
+    """
+    Wraps another judge, prepending an explicit length-disclosure note to
+    the prompt instead of truncating either response.
+
+    The complementary mitigation to `LengthNormalizedJudge`, trading its
+    guarantee for the opposite one: every character of both responses
+    reaches the judge completely unchanged (`verdict` never touches
+    `response_a`/`response_b`, only `prompt`) — no content is ever at risk
+    of being cut, which `LengthNormalizedJudge` measurably does not
+    guarantee (see REWARD_HACKING.md §4). What this mitigation cannot
+    guarantee in exchange is that the judge actually follows the note —
+    `prompts.SYSTEM_PROMPT` already asks it to ignore length unconditionally
+    and, per this module's own experiment, an instruction in a prompt is not
+    a guarantee. This is the same tradeoff stated the other way round: a
+    content-destructive mitigation that works by construction, versus a
+    content-preserving one that works only if the model complies.
+    """
+
+    def __init__(self, inner: Judge, threshold: float = 1.15):
+        self.inner = inner
+        self.threshold = threshold
+        self.name = f"{inner.name} (length-disclosed)"
+
+    @property
+    def is_order_invariant(self) -> bool:
+        return self.inner.is_order_invariant
+
+    def verdict(self, comparison: Comparison):
+        note = _length_disclosure_note(
+            len(comparison.response_a), len(comparison.response_b), self.threshold
+        )
+        if not note:
+            return self.inner.verdict(comparison)
+        return self.inner.verdict(replace(comparison, prompt=note + comparison.prompt))
+
+
 def main(argv=None) -> int:
     """
     Run the padding experiment against a live judge, naive then
@@ -207,14 +256,16 @@ def main(argv=None) -> int:
 
     # Each comparison is judged twice (baseline, then padded) per judge, and
     # each of those judgments is itself two backend calls (position swap):
-    # 4 calls/comparison per judge. main() runs this against two judges —
-    # the naive one, then the length-normalized mitigation — so the true
-    # total is 4 * 2 = 8 calls/comparison, not 4. (Found live: the original
-    # *4 formula under-quoted the actual spend by half, in the one gate in
-    # this codebase whose entire job is showing a number before money is
-    # spent — verified by counting run_gaming_experiment's two call sites
-    # below against judge_with_position_check's per-call cost.)
-    n_calls = len(sample) * 8
+    # 4 calls/comparison per judge. main() runs this against THREE judges —
+    # naive, the length-normalized (truncating) mitigation, and the
+    # length-disclosed (content-preserving) mitigation — so the true total
+    # is 4 * 3 = 12 calls/comparison. (A previous version of this formula
+    # said *4 when the code ran two judges, undercounting real spend by
+    # half — caught live, in the one gate in this codebase whose entire job
+    # is showing a number before money is spent. Get this one right: it's
+    # `4 * (number of run_gaming_experiment calls below)`, recomputed
+    # whenever a condition is added or removed, not assumed.)
+    n_calls = len(sample) * 12
     characters = sum(len(r.prompt) + len(r.response_a) + len(r.response_b) for r in sample) / max(len(sample), 1)
     avg_input_tokens = int(characters / 4) + 300
     print(
@@ -237,8 +288,12 @@ def main(argv=None) -> int:
     print(naive.summary())
 
     print(f"\n--- length-normalized judge (mitigation, tolerance={args.tolerance}) ---")
-    mitigated = run_gaming_experiment(LengthNormalizedJudge(judge, tolerance=args.tolerance), sample)
-    print(mitigated.summary())
+    truncated = run_gaming_experiment(LengthNormalizedJudge(judge, tolerance=args.tolerance), sample)
+    print(truncated.summary())
+
+    print(f"\n--- length-disclosed judge (mitigation, threshold={args.tolerance}) ---")
+    disclosed = run_gaming_experiment(LengthDisclosedJudge(judge, threshold=args.tolerance), sample)
+    print(disclosed.summary())
 
     return 0
 
