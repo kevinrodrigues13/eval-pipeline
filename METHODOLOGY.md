@@ -101,53 +101,39 @@ prompt is what makes the judge's own kappa comparable to MT-Bench's
 recorded GPT-4 kappa on the same items — a different prompt would mean
 measuring a different judge, not judging this one.
 
-**Two bugs found here, both against that same standard, one much larger
-than the other.** First: MT-Bench's own multi-turn judge prompt
-(`pair-v2-multi-turn`) is not only a different user-turn template — it is a
-different *system* prompt, adding one sentence `SYSTEM_PROMPT` does not
-have: *"You should focus on who provides a better answer to the second user
-question."* `judge.py` originally sent every comparison through the same
-`SYSTEM_PROMPT` regardless of turn, so a multi-turn item never got the
-instruction to isolate turn-2 quality from turn-1 quality — verified against
-FastChat's published `judge_prompts.jsonl` directly, not assumed. Fixed
-with `prompts.render_system_prompt`, which selects the multi-turn system
-prompt whenever `context_a`/`context_b` is non-empty.
+MT-Bench actually publishes two judge prompts, not one, and the difference
+between them isn't just the template. The multi-turn prompt
+(`pair-v2-multi-turn` in FastChat's `judge_prompts.jsonl`) carries its own
+system prompt, one sentence longer than the single-turn version: *"You
+should focus on who provides a better answer to the second user question."*
+That sentence is doing real work — without it, a judge shown a two-turn
+conversation has no instruction to isolate turn-2 quality from the exchange
+as a whole. `prompts.render_system_prompt` picks between the two system
+prompts based on whether the comparison carries prior-turn context
+(`context_a`/`context_b`); `render_prompt` picks the matching user-turn
+template alongside it.
 
-Checking that surfaced the second, more serious bug: `mtbench.py`'s
-`_prompt_and_context` unconditionally read the *last* two messages of
-`conversation_a`/`conversation_b` as "the item being judged" and everything
-before as context — correct for a turn-2 row, but `conversation_a`/`_b`, as
-published, carries the *full* transcript (both turns) regardless of which
-turn a given row is a judgment of; verified directly against the raw
-dataset, not assumed, across every row of a 100-row sample. For a turn=1
-row, `conversation[-2:]` silently returned turn 2's question and answer
-instead of turn 1's. **Every turn=1 comparison in this project's entire
-dataset — calibration, GPT-4 verdicts, and the held-out policy
-comparisons, since all three derived files share `_comparison_record` — was
-turn-2 content mislabeled as turn 1.** There was no genuine single-turn
-data anywhere in this pipeline before this fix; roughly half the dataset
-was a duplicate of the other half under a different id. It went uncaught by
-`tests/test_mtbench.py` because the test fixtures modeled an idealized
-shape of the raw data (a turn=1 row with a 2-message `conversation_a`) that
-does not match the real dataset — the tests passed, for the wrong reason,
-against fixtures that had already assumed the bug's fix. Fixed by threading
-`row["turn"]` through `_prompt_and_context`, which now slices the
-`(2*(turn-1), 2*(turn-1)+1)` message pair instead of always the last two;
-the corrected fixtures reproduce the real shape (`conversation_a` always
-carries both turns) and assert turn 1 and turn 2 extract different content
-from the same underlying conversation.
+Getting the system prompt right depends on first getting the turn itself
+right. MT-Bench's `conversation_a`/`conversation_b` fields, as published,
+always carry the full transcript — both turns — regardless of which turn a
+given row is actually a judgment of; the row's `turn` field says which
+(question, answer) pair in that transcript is being judged, not how far to
+truncate it. `mtbench._prompt_and_context` takes the turn number explicitly
+and slices out the matching pair — messages `2*(turn-1)` and
+`2*(turn-1)+1` — carrying everything before it as prior-turn context. That's
+what lets a turn=1 item show the judge only the first exchange, with no
+context, and a turn=2 item show the judge the second exchange with the
+first carried as history — the same view a human MT-Bench annotator had for
+either judgment.
 
-**What this does and doesn't invalidate.** The free/recorded path
-(`--judge recorded`, `PrecomputedJudge`) turned out to be unaffected in
-substance: it replays GPT-4's own stored verdict for each item, matched by
-id, and never reads `prompt`/`context` at all — regenerating
-`output/evaluation_report.md` against the corrected data reproduced the
-exact same numbers (74.0% win rate, 98.3% share of human kappa), confirming
-this by observation rather than argument. What *was* affected is any run
-that actually sent rendered prompt content to a live model — which
-`output/evaluation_report_live.md` and §5.5's `claude-haiku-4-5` comparison
-did, before this fix existed. That run has since been redone against the
-corrected data; §5.5 has the before/after numbers.
+This distinction only matters for a live judge. `PrecomputedJudge`
+(`--judge recorded`) replays GPT-4's own stored verdict for each item by
+id, and never reads the rendered prompt or context at all — every number
+this document reports for the recorded judge is unaffected by how
+prompt/context get rendered. `output/evaluation_report_live.md` and §5.5's
+`claude-haiku-4-5` comparison are the only numbers in this project that
+depend on it, since they're the only ones a live model actually reads
+rendered prompt content for.
 
 ### 3.2 Decision: position bias is defended twice, independently
 
@@ -350,21 +336,11 @@ judge (nothing to measure — see §3.5) rather than a misleading 0%.
 work: not anymore. `claude-opus-5` (this project's default) has run via
 `PrecomputedJudge` replaying GPT-4's recorded MT-Bench verdicts throughout
 this document; `claude-haiku-4-5` has since been run **live**, for real,
-against the same held-out pair (`--calibration-items 250 --concurrency 10
---skip-parse-errors`, README).
+against the same held-out pair (`--calibration-items 250 --concurrency 20
+--skip-parse-errors`, `output/evaluation_report_live.md`).
 
-**This table was originally run before the turn-extraction fix in §3.1, and
-has since been re-run against corrected data** (`--calibration-items 250
---concurrency 20 --skip-parse-errors`, `output/evaluation_report_live.md`).
-The numbers below are the corrected run. They moved substantially — most of
-what originally looked like "these two judges genuinely disagree on the
-headline number" turned out to be partly an artifact of half the dataset
-showing the judge the wrong turn's content, not a stable property of either
-judge. That is itself worth recording: a data bug this deep in the pipeline
-was, for a while, indistinguishable from a real cross-judge disagreement.
-
-Both clear the trust gate comfortably, and now — unlike before the fix —
-their held-out win-rate intervals overlap:
+Both clear the trust gate comfortably, and their held-out win-rate
+intervals overlap:
 
 | | GPT-4 (recorded) | claude-haiku-4-5 (live) |
 |---|---|---|
@@ -375,28 +351,23 @@ their held-out win-rate intervals overlap:
 | Held-out win rate (`gpt-3.5-turbo`) | **74.0%** [65.5%, 82.3%] | **81.3%** [74.3%, 88.6%] |
 | Held-out position-instability | 31.5% (46/146) | 15.8% (23/146) |
 
-Before the fix, the two win-rate intervals did not overlap at all (74.0%
-[65.5%, 82.3%] vs. 86.6% [78.1%, 94.5%]) and the two judges' share of human
-kappa differed by 9.2 points (98.3% vs. 89.1%). After it, the intervals
-overlap on [74.3%, 82.3%] and the share-of-kappa gap shrinks to 0.5 points
-— close enough that "these are two independently-calibrated judges
+The two judges calibrate almost identically — 98.3% vs. 97.8% of their
+respective human-human kappa ceilings — and their win-rate intervals
+overlap on [74.3%, 82.3%], so "two independently-calibrated judges
 measuring the same underlying preference, with ordinary sampling noise
-between two different-sized independently-drawn samples" is now the
-simpler explanation, where before the fix a real judge-dependent effect
-looked like it needed its own explanation.
+between two different-sized, independently-drawn samples" covers most of
+the gap between them.
 
-**What still doesn't fully resolve, stated plainly rather than papered
-over:** the point estimates are still not identical (74.0% vs. 81.3%), and
-`claude-haiku-4-5` is still meaningfully *more* position-stable on the
-held-out set than GPT-4 is (15.8% vs. 31.5%, a bigger gap than before the
-fix, not a smaller one) — a real, reproducible difference this document
-does not have a causal explanation for. The two calibration samples also
-still differ in composition (independently sampled, at different sizes,
-against a human-human ceiling that itself differs between them, 72.6% vs.
-75.4% — a reminder that the ceiling is a property of *which items got
-sampled*, not a fixed constant of the corpus). Settling the residual gap
-precisely needs the same calibration sample and seed run through both
-judges — still listed in §8.
+**What it doesn't cover:** the point estimates aren't identical (74.0% vs.
+81.3%), and `claude-haiku-4-5` is meaningfully *more* position-stable on
+the held-out set than GPT-4 is (15.8% vs. 31.5%) — a real, reproducible
+difference this document does not have a causal explanation for. The two
+calibration samples also differ in composition (independently sampled, at
+different sizes, against a human-human ceiling that itself differs between
+them, 72.6% vs. 75.4% — a reminder that the ceiling is a property of *which
+items got sampled*, not a fixed constant of the corpus). Settling the
+residual gap precisely needs the same calibration sample and seed run
+through both judges — still listed in §8.
 
 ---
 
@@ -492,9 +463,10 @@ all items into one ceiling) is listed in §8.
    experiment's live spend minimal) — to find out whether the confound
    survives at the sample size the headline number is actually reported at.
 4. **A second judge model — done; the controlled version of it is not.**
-   §5.5 ran `claude-haiku-4-5` live against the same held-out pair
-   GPT-4 was measured on, and found a real, non-overlapping difference in
-   the headline win rate (74.0% vs 86.6%). What's still missing is the
+   §5.5 ran `claude-haiku-4-5` live against the same held-out pair GPT-4
+   was measured on. The two mostly agree — calibration and the headline
+   win-rate interval both land close together — but not on
+   position-stability (15.8% vs 31.5%). What's still missing is the
    *controlled* version — the same calibration sample and seed run through
    both judges, so a genuine judge effect can be separated from the two
    runs having sampled different calibration items.

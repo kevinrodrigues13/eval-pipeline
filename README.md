@@ -180,9 +180,9 @@ independent.
 |---|---|
 | `schema.py` | `Comparison`/`Annotation` — the shared data shape |
 | `ingestion.py` | JSONL → `Comparison`, merging rows that describe the same item (by id, or by exact content match when there's no id) |
-| `mtbench.py` | Fetches MT-Bench's human judgments + GPT-4 verdicts; the free, reproducible data source everything else runs on. Also where reversed-slot-order rows get normalised (`_canonical_row`) *before* `ingestion.py` ever sees them — `ingestion.py`'s own content-match fallback is an exact match, not order-tolerant |
+| `mtbench.py` | Fetches MT-Bench's human judgments + GPT-4 verdicts; the free, reproducible data source everything else runs on. Also where reversed-slot-order rows get normalised (`_canonical_row`) *before* `ingestion.py` ever sees them — `ingestion.py`'s own content-match fallback is an exact match, not order-tolerant — and where each row's turn number picks the right (question, answer) pair out of MT-Bench's full-transcript conversation field, carrying everything before it as prior-turn context |
 | `validation.py` | Flags noisy/contradictory labels explicitly; the human-human agreement ceiling |
-| `prompts.py` | The judge's system + user prompt, based on MT-Bench's own published pair-wise prompts |
+| `prompts.py` | The judge's system + user prompt, based on MT-Bench's own published pair-wise prompts — single-turn and multi-turn variants of both, picked by whether the comparison carries prior-turn context |
 | `judge.py` | `Judge` interface, the position-swap defense, `LLMJudge` (live) and `PrecomputedJudge` (replay) |
 | `providers.py` | The live backend: a real Claude call via the `anthropic` SDK, a response cache, a cost estimate |
 | `calibration.py` | Judge-vs-human agreement and kappa, measured the same way the human ceiling is; the trust gate |
