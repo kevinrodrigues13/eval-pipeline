@@ -146,8 +146,8 @@ exact same numbers (74.0% win rate, 98.3% share of human kappa), confirming
 this by observation rather than argument. What *was* affected is any run
 that actually sent rendered prompt content to a live model — which
 `output/evaluation_report_live.md` and §5.5's `claude-haiku-4-5` comparison
-did, before this fix existed. That run is not corrected retroactively; §5.5
-now says so explicitly.
+did, before this fix existed. That run has since been redone against the
+corrected data; §5.5 has the before/after numbers.
 
 ### 3.2 Decision: position bias is defended twice, independently
 
@@ -353,48 +353,50 @@ this document; `claude-haiku-4-5` has since been run **live**, for real,
 against the same held-out pair (`--calibration-items 250 --concurrency 10
 --skip-parse-errors`, README).
 
-**This run predates the turn-extraction fix in §3.1 and has not been
-re-verified against corrected data.** At the time this table's live run
-happened, roughly half of every sample it drew from — every turn=1 item —
-actually showed `claude-haiku-4-5` turn-2 content mislabeled as turn 1
-(§3.1). The free/recorded row is unaffected (it replays stored verdicts,
-never rendered prompt content — confirmed by regenerating it against the
-corrected data and getting identical numbers), so the comparison below is
-between a row that's still accurate and a row that is not, left in place
-rather than deleted, quietly redone, or silently presented as current. A
-corrected live re-run is real spend (`python -m eval_pipeline.cli` against
-`claude-haiku-4-5`) and has not been executed as part of this submission.
+**This table was originally run before the turn-extraction fix in §3.1, and
+has since been re-run against corrected data** (`--calibration-items 250
+--concurrency 20 --skip-parse-errors`, `output/evaluation_report_live.md`).
+The numbers below are the corrected run. They moved substantially — most of
+what originally looked like "these two judges genuinely disagree on the
+headline number" turned out to be partly an artifact of half the dataset
+showing the judge the wrong turn's content, not a stable property of either
+judge. That is itself worth recording: a data bug this deep in the pipeline
+was, for a while, indistinguishable from a real cross-judge disagreement.
 
-Both clear the trust gate comfortably, but not by the same margin, and they
-do not agree on the magnitude of the headline finding:
+Both clear the trust gate comfortably, and now — unlike before the fix —
+their held-out win-rate intervals overlap:
 
 | | GPT-4 (recorded) | claude-haiku-4-5 (live) |
 |---|---|---|
-| Calibration sample | 300 sampled, 300 usable | 250 sampled, 248 usable (2 parse failures) |
+| Calibration sample | 300 sampled, 300 usable | 250 sampled, 250 usable |
 | Human-human ceiling | 72.6% (kappa 0.572) | 75.4% (kappa 0.618) |
-| Judge kappa | 0.563 | 0.551 |
-| Share of human kappa | 98.3% | 89.1% |
-| Held-out win rate (`gpt-3.5-turbo`) | **74.0%** [65.5%, 82.3%] | **86.6%** [78.1%, 94.5%] |
-| Held-out position-instability | 31.5% (46/146) | 23.3% (34/146) |
+| Judge kappa | 0.563 | 0.605 |
+| Share of human kappa | 98.3% | 97.8% |
+| Held-out win rate (`gpt-3.5-turbo`) | **74.0%** [65.5%, 82.3%] | **81.3%** [74.3%, 88.6%] |
+| Held-out position-instability | 31.5% (46/146) | 15.8% (23/146) |
 
-The two win-rate intervals do not overlap. This is the exact finding "is
-this judge good" vs "which judge is better" (§8's original framing) was
-meant to surface: the 74.0% headline this project otherwise reports is
-*this judge's* measured win rate, not *the* win rate, and it has now been
-shown to move by more than either interval's width when the judge changes.
+Before the fix, the two win-rate intervals did not overlap at all (74.0%
+[65.5%, 82.3%] vs. 86.6% [78.1%, 94.5%]) and the two judges' share of human
+kappa differed by 9.2 points (98.3% vs. 89.1%). After it, the intervals
+overlap on [74.3%, 82.3%] and the share-of-kappa gap shrinks to 0.5 points
+— close enough that "these are two independently-calibrated judges
+measuring the same underlying preference, with ordinary sampling noise
+between two different-sized independently-drawn samples" is now the
+simpler explanation, where before the fix a real judge-dependent effect
+looked like it needed its own explanation.
 
-**What this does and doesn't explain, stated plainly rather than papered
-over with a causal story:** the two calibration samples differ in size and
-composition (300 vs 248 usable, independently sampled — even the
-human-human ceiling itself differs between them, 72.6% vs 75.4%, which is
-its own reminder that the ceiling is a property of *which items got
-sampled*, not a fixed constant of the corpus). A tempting story would be
-"the less stable judge is also the more decisive one" — but the data runs
-the other way: Haiku was *more* stable on the held-out set (23.3% vs
-31.5%) while *also* reporting the more extreme win rate, the opposite of
-what that story predicts. No explanation here is backed by a controlled
-comparison, so none is asserted. Settling this needs the same calibration
-sample and seed run through both judges — listed in §8.
+**What still doesn't fully resolve, stated plainly rather than papered
+over:** the point estimates are still not identical (74.0% vs. 81.3%), and
+`claude-haiku-4-5` is still meaningfully *more* position-stable on the
+held-out set than GPT-4 is (15.8% vs. 31.5%, a bigger gap than before the
+fix, not a smaller one) — a real, reproducible difference this document
+does not have a causal explanation for. The two calibration samples also
+still differ in composition (independently sampled, at different sizes,
+against a human-human ceiling that itself differs between them, 72.6% vs.
+75.4% — a reminder that the ceiling is a property of *which items got
+sampled*, not a fixed constant of the corpus). Settling the residual gap
+precisely needs the same calibration sample and seed run through both
+judges — still listed in §8.
 
 ---
 
