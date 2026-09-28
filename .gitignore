@@ -6,7 +6,6 @@ __pycache__/
 *.egg-info/
 build/
 .DS_Store
-output/
 
 # Credentials. Never commit.
 .env

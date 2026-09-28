@@ -44,12 +44,18 @@ python -m eval_pipeline.cli \
 pytest   # 175 tests
 ```
 
-The report lands in `output/evaluation_report.md`. That run takes a few
-seconds, costs nothing, and needs no API key — it replays a real GPT-4
-judge's published verdicts, so the numbers are reproducible rather than
-merely claimed. As of this data pull: **gpt-3.5-turbo preferred, 74.0% of
-scored comparisons (95% CI 65.5%–82.3%)**, judge calibrated at 98.3% of the
-human-human kappa ceiling.
+The report lands in `output/evaluation_report.md`, checked into this repo so
+it can be read without running anything. That run takes a few seconds, costs
+nothing, and needs no API key — it replays a real GPT-4 judge's published
+verdicts, so the numbers are reproducible rather than merely claimed. As of
+this data pull: **gpt-3.5-turbo preferred, 74.0% of scored comparisons (95%
+CI 65.5%–82.3%)**, judge calibrated at 98.3% of the human-human kappa
+ceiling.
+
+`output/evaluation_report_live.md` is the same report from a real, paid live
+run against `claude-haiku-4-5` instead of GPT-4's recorded verdicts — the
+second judge behind [`METHODOLOGY.md`](METHODOLOGY.md) §5.5's comparison
+table, also checked in rather than only quoted.
 
 ### Judging with a live model
 
